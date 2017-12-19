@@ -5,4 +5,4 @@ The classification into the five classes of quiescent, starforming, starburst, g
 
 + `PCA plotting example.ipynb`: Notebook showing how to read the maps of PCA amplitudes, classifications and quality masks, make maps of the PCA classes, reclassify the spaxels using different boundaries in PC1, PC2, and count how many spaxels there are in each class in an aperture.
 + `MaNGA_Utils.py`: Class containing the code which makes the spx_bin_mask to account for the double counting of spaxels which have the same values because they are in the same Voronoi bin.
-+ `VW_PCA.py`: Class containing the PCA classification code, and other useful functions such as deriving SFR from the Halpha flux, Galaxtic extinction correction, sky line masking and pre-processesing of spectra required before performing the PCA.
++ `VW_PCA.py`: Class containing the classification code, and other useful functions such as deriving SFR from the Halpha flux, Galaxtic extinction correction, sky line masking and pre-processesing of spectra required before performing the PCA.
