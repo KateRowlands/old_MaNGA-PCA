@@ -43,7 +43,7 @@ class VW_PCA():
     def dustlaw_gal(self, wave, flux, ebvgal):
         #Galactic dust correction. Based on dustlaw_gal.pro by Vivienne Wild.
 
-        data = ascii.read("/data/kate/REDDEN/cardelli_gal.ext")
+        data = ascii.read("cardelli_gal.ext")
 
         lam_dust = data['col1']
         dust = data['col2']
