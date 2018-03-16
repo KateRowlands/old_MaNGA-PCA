@@ -8,12 +8,14 @@
 import numpy as np
 import math
 from scipy.io.idl import readsav
+from scipy import interpolate
 from astropy.io import ascii
 import matplotlib.patches as patches
 from matplotlib.path import Path
-from marvin.tools.maps import Maps
 from marvin.utils.dap.bpt import get_masked
 from marvin.utils.dap.bpt import get_snr
+
+dir = '/home/ksearle2/' #'/data/kate/'
 
 class VW_PCA():
 
@@ -43,7 +45,7 @@ class VW_PCA():
     def dustlaw_gal(self, wave, flux, ebvgal):
         #Galactic dust correction. Based on dustlaw_gal.pro by Vivienne Wild.
 
-        data = ascii.read("cardelli_gal.ext")
+        data = ascii.read(dir+'REDDEN/cardelli_gal.ext')
 
         lam_dust = data['col1']
         dust = data['col2']
@@ -55,7 +57,7 @@ class VW_PCA():
 
         f_dust = np.interp(wave, lam_dust, dust) #interpolate
 
-        R = 3.1                         #R_V
+        R = 3.1                         #R_v
         A = ebvgal*(f_dust + R)           #extinction in mags
 
         #now we know what the extinction is as function of lambda, so divide
@@ -65,10 +67,72 @@ class VW_PCA():
 
         return corr
 
+    def dustlaw_interp(self):
+        #Emission line dust correction. Based on dust_balmerdec.pro by Vivienne Wild.
+        #Balmerdec is linear (not log10).
+
+        wave_ha = 6564.610
+        wave_hb = 4862.683
+
+        R_v = 3.1  #R_v is not specified in this fit, have to state it
+
+        data = ascii.read(dir+'REDDEN/cardelli_gal.ext')
+
+        lam_dust = data['col1']
+        dust = data['col2']
+
+        ll = lam_dust/1.e4         #microns
+        x = 1./ll                 #wave number
+        y = x-1.82
+
+        ax = 1 + 0.104*y - 0.609*y**2 + 0.701*y**3 + 1.137*y**4 \
+            -1.718*y**5 - 0.827*y**6 + 1.647*y**7 - 0.505*y**8
+
+        bx = 1.952*y + 2.908*y**2 - 3.989*y**3 - 7.985*y**4 \
+            +11.102*y**5 + 5.491*y**6 - 10.805*y**7 + 3.347*y**8
+
+        dust = np.zeros(len(x))
+        ind = (x > 1.1) & (x < 3.3)
+        dust[ind] = R_v * ( (ax[ind] + bx[ind]/R_v) -1. )
+
+        ind = (x > 0.3) & (x < 1.1)
+        dust[ind] = R_v * ( ((0.574*(x[ind])**1.61)+(-0.527*(x[ind])**1.61)/R_v)-1. )
+
+        f = interpolate.interp1d(lam_dust, dust)
+        dust_ha = f(wave_ha)
+        dust_hb = f(wave_hb)
+
+        return dust_ha, dust_hb, lam_dust, dust
+
+
+    def dust_balmerdec(self, dust_ha, dust_hb, lam_dust, dust, balmerdec, a_lambda):
+        #Emission line dust correction. Based on dust_balmerdec.pro by Vivienne Wild.
+        #Balmerdec is linear (not log10).
+
+        ratio_uncorr = balmerdec * 2.87
+        ratio_corr = 2.87
+
+        R_v = 3.1
+
+        E_BV = -2.5*np.log10(ratio_uncorr.flatten()/ratio_corr)/(dust_ha-dust_hb)
+
+        a_flux_tmp = np.empty(shape=[len(a_lambda), len(E_BV)] )
+
+        for p in range(len(E_BV)):
+            arr = 1./(10**(-E_BV[p]*(dust+R_v)/2.5))
+
+            f2 = interpolate.interp1d(lam_dust, arr)
+            a_flux_tmp[:,p] = f2(a_lambda)
+
+        a_flux = a_flux_tmp.reshape((len(a_lambda),ratio_uncorr.shape[0],ratio_uncorr.shape[1]))
+
+        return a_flux
+
+
     def masksky(self, wave, flux):
         # masks sky emission lines [OI], N2+. Based on masksky.pro witten by Vivienne Wild
 
-        emlines = [[5574,5590],[4276,4282],[6297,6305],[6364,6368]]
+        emlines = [[5574.,5590.],[4276.,4282.],[6297.,6305.],[6364.,6368.]]
         nlines = np.shape(emlines)[0]
 
         n = 0
@@ -110,7 +174,7 @@ class VW_PCA():
         #Does preprocessing of MaNGA spectra needed before doing PCA, e.g.
         #Dust correction, skyline masking and emission line masking.
 
-        espec = readsav('/data/kate/StAndrews/PCA_GAMA_PSB_stacking/VO/PCARUN/ESPEC/pcavo_espec_25.sav')
+        espec = readsav(dir+'StAndrews/PCA_GAMA_PSB_stacking/VO/PCARUN/ESPEC/pcavo_espec_25.sav')
         npix = len(espec.wave)
 
         waveobs = waverest*(1.+z)
@@ -161,10 +225,10 @@ class VW_PCA():
 
         # SF
         sf_verts = [
-            (vertices["sf_vert1"], vertices["junk_y_lower"]), # left, bottom
-            (vertices["sf_vert2"], vertices["psb_cut"]), # left, top
-            (vertices["sf_vert3"], vertices["psb_cut"]), # right, top
-            (vertices["sf_vert4"], vertices["junk_y_lower"]) # right, bottom
+            (vertices['sf_vert1'], vertices['junk_y_lower']), # left, bottom
+            (vertices['sf_vert2'], vertices['psb_cut']), # left, top
+            (vertices['sf_vert3'], vertices['psb_cut']), # right, top
+            (vertices['sf_vert4'], vertices['junk_y_lower']) # right, bottom
             ]
 
         sf_path = Path(sf_verts)
@@ -172,10 +236,10 @@ class VW_PCA():
 
         # PSB
         psb_verts = [
-            (vertices["left_cut"], vertices["psb_cut"]), # left, bottom
-            (vertices["left_cut"], vertices["junk_y_upper"]), # left, top
-            (vertices["green_vert1"]-2., vertices["junk_y_upper"]), # right, top
-            (vertices["green_vert1"], vertices["psb_cut"]) # right, bottom
+            (vertices['left_cut'], vertices['psb_cut']), # left, bottom
+            (vertices['left_cut'], vertices['junk_y_upper']), # left, top
+            (vertices['green_vert1']-2., vertices['junk_y_upper']), # right, top
+            (vertices['green_vert1'], vertices['psb_cut']) # right, bottom
             ]
 
         psb_path = Path(psb_verts)
@@ -183,10 +247,10 @@ class VW_PCA():
 
         # SB
         sb_verts = [
-            (vertices["left_cut"], vertices["sb_vert1"]), # left, bottom
-            (vertices["left_cut"], vertices["psb_cut"]), # left, top
-            (vertices["sf_vert2"], vertices["psb_cut"]), # right, top
-            (vertices["sf_vert1"]-0.2, vertices["sb_vert1"]) # right, bottom
+            (vertices['left_cut'], vertices['sb_vert1']), # left, bottom
+            (vertices['left_cut'], vertices['psb_cut']), # left, top
+            (vertices['sf_vert2'], vertices['psb_cut']), # right, top
+            (vertices['sf_vert1']-0.15, vertices['sb_vert1']) # right, bottom
             ]
 
         sb_path = Path(sb_verts)
@@ -194,10 +258,10 @@ class VW_PCA():
 
         # Green valley
         green_verts = [
-            (vertices["sf_vert4"], vertices["junk_y_lower"]), # left, bottom
-            (vertices["sf_vert3"], vertices["psb_cut"]), # left, top
-            (vertices["green_vert1"], vertices["psb_cut"]), # right, top
-            (vertices["green_vert2"], vertices["junk_y_lower"]) # right, bottom
+            (vertices['sf_vert4'], vertices['junk_y_lower']), # left, bottom
+            (vertices['sf_vert3'], vertices['psb_cut']), # left, top
+            (vertices['green_vert1'], vertices['psb_cut']), # right, top
+            (vertices['green_vert2'], vertices['junk_y_lower']) # right, bottom
             ]
 
         green_path = Path(green_verts)
@@ -205,10 +269,10 @@ class VW_PCA():
 
         # Red
         red_verts = [
-            (vertices["green_vert2"], vertices["junk_y_lower"]), # left, bottom
-            (vertices["green_vert1"]+1.7, vertices["junk_y_upper"]), # left, top
-            (vertices["right_cut"], vertices["junk_y_upper"]), # right, top
-            (vertices["right_cut"], vertices["junk_y_lower"]) # right, bottom
+            (vertices['green_vert2'], vertices['junk_y_lower']), # left, bottom
+            (vertices['green_vert1']+1.73, vertices['junk_y_upper']), # left, top
+            (vertices['right_cut'], vertices['junk_y_upper']), # right, top
+            (vertices['right_cut'], vertices['junk_y_lower']) # right, bottom
             ]
 
         red_path = Path(red_verts)
@@ -216,10 +280,10 @@ class VW_PCA():
 
         # Junk
         junk_verts = [
-            (vertices["sf_vert1"]-0.3, vertices["junk_y_lower2"]), # left, bottom
-            (vertices["sf_vert2"]-0.3, vertices["junk_y_lower"]), # left, top
-            (vertices["right_cut"], vertices["junk_y_lower"]), # right, top
-            (vertices["right_cut"], vertices["junk_y_lower2"]) # right, bottom
+            (vertices['sf_vert1']-0.3, vertices['junk_y_lower2']), # left, bottom
+            (vertices['sf_vert2']-0.3, vertices['junk_y_lower']), # left, top
+            (vertices['right_cut'], vertices['junk_y_lower']), # right, top
+            (vertices['right_cut'], vertices['junk_y_lower2']) # right, bottom
             ]
 
         junk_path = Path(junk_verts)
